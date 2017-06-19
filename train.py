@@ -19,6 +19,7 @@ import pixel_cnn_pp.nn as nn
 import pixel_cnn_pp.plotting as plotting
 from pixel_cnn_pp.model import model_spec
 import data.cifar10_data as cifar10_data
+import data.mnist_data as mnist_data
 import data.imagenet_data as imagenet_data
 
 # -----------------------------------------------------------------------------
@@ -29,7 +30,7 @@ parser.add_argument('-i', '--data_dir', type=str,
 parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save',
                     help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--data_set', type=str,
-                    default='cifar', help='Can be either cifar|imagenet')
+                    default='cifar', help='Can be either cifar|imagenet|mnist')
 parser.add_argument('-t', '--save_interval', type=int, default=20,
                     help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true',
@@ -79,7 +80,8 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar': cifar10_data.DataLoader,
-              'imagenet': imagenet_data.DataLoader}[args.data_set]
+              'imagenet': imagenet_data.DataLoader,
+              'mnist': mnist_data.DataLoader}[args.data_set]
 train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu,
                         rng=rng, shuffle=True, return_labels=args.class_conditional)
 test_data = DataLoader(args.data_dir, 'test', args.batch_size *
