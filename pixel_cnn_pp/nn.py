@@ -196,7 +196,7 @@ def dense(x, num_units, nonlinearity=None, init_scale=1., counters={}, init=Fals
 
         else:
             V, g, b = get_vars_maybe_avg(['V', 'g', 'b'], ema)
-            tf.assert_variables_initialized([V, g, b])
+            # tf.assert_variables_initialized([V, g, b])
 
             # use weight normalization (Salimans & Kingma, 2016)
             x = tf.matmul(x, V)
@@ -235,7 +235,7 @@ def conv2d(x, num_filters, filter_size=[3, 3], stride=[1, 1], pad='SAME', nonlin
 
         else:
             V, g, b = get_vars_maybe_avg(['V', 'g', 'b'], ema)
-            tf.assert_variables_initialized([V, g, b])
+            # tf.assert_variables_initialized([V, g, b])
 
             # use weight normalization (Salimans & Kingma, 2016)
             W = tf.reshape(g, [1, 1, 1, num_filters]) * \
@@ -283,7 +283,7 @@ def deconv2d(x, num_filters, filter_size=[3, 3], stride=[1, 1], pad='SAME', nonl
 
         else:
             V, g, b = get_vars_maybe_avg(['V', 'g', 'b'], ema)
-            tf.assert_variables_initialized([V, g, b])
+            # tf.assert_variables_initialized([V, g, b])
 
             # use weight normalization (Salimans & Kingma, 2016)
             W = tf.reshape(g, [1, 1, num_filters, 1]) * \
