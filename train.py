@@ -263,11 +263,11 @@ with tf.Session() as sess:
                 args.batch_size * args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
             img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
             plotting.plt.savefig(os.path.join(
-                args.save_dir, '%s_sample%d.png' % (args.data_set, epoch)))
+                args.save_dir, '%s_sample%d_%.8fbpd.png' % (args.data_set, epoch, test_loss_gen)))
             plotting.plt.close('all')
 
             # save params
             saver.save(sess, args.save_dir + '/params_' +
-                       args.data_set + '.ckpt')
+                       args.data_set + ('_%d_%.8fbpd.ckpt' % (epoch, test_loss_gen)))
             np.savez(args.save_dir + '/test_bpd_' + args.data_set +
                      '.npz', test_bpd=np.array(test_bpd))
