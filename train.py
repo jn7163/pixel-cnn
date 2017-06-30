@@ -182,7 +182,7 @@ def sample_from_model(sess):
 
 # init & save
 initializer = tf.global_variables_initializer()
-saver = tf.train.Saver()
+saver = tf.train.Saver(max_to_keep=None)
 
 # turn numpy inputs into feed_dict for use with tensorflow
 
@@ -230,6 +230,8 @@ with tf.Session() as sess:
                 print('restoring parameters from', ckpt_file)
                 saver.restore(sess, ckpt_file)
 
+        saver.save(sess, args.save_dir + '/params_' + args.data_set + '_initial.ckpt')
+        print('done saving initial parameters')
         # train for one epoch
         train_losses = []
         for d in train_data:
