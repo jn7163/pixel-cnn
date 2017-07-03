@@ -230,8 +230,8 @@ with tf.Session() as sess:
                 print('restoring parameters from', ckpt_file)
                 saver.restore(sess, ckpt_file)
 
-        saver.save(sess, args.save_dir + '/params_' + args.data_set + '_initial.ckpt')
-        print('done saving initial parameters')
+            saver.save(sess, args.save_dir + '/params_' + args.data_set + '_initial.ckpt')
+            print('done saving initial parameters')
         # train for one epoch
         train_losses = []
         for d in train_data:
