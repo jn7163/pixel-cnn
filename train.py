@@ -21,6 +21,7 @@ from pixel_cnn_pp.model import model_spec
 import data.cifar10_data as cifar10_data
 import data.mnist_data as mnist_data
 import data.imagenet_data as imagenet_data
+import data.imagenet as imagenet
 
 # -----------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
@@ -30,7 +31,7 @@ parser.add_argument('-i', '--data_dir', type=str,
 parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save',
                     help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--data_set', type=str,
-                    default='cifar', help='Can be either cifar|imagenet|mnist')
+                    default='cifar', help='Can be either cifar|imagenet|mnist|bigimagenet')
 parser.add_argument('-t', '--save_interval', type=int, default=20,
                     help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true',
@@ -69,7 +70,7 @@ parser.add_argument('-s', '--seed', type=int, default=1,
                     help='Random seed to use')
 args = parser.parse_args()
 print('input args:\n', json.dumps(vars(args), indent=4,
-                                  separators=(',', ':')))  # pretty print args
+                                  separators=(',', ':')), flush=True)  # pretty print args
 
 # -----------------------------------------------------------------------------
 # fix random seed for reproducibility
@@ -81,11 +82,18 @@ if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar': cifar10_data.DataLoader,
               'imagenet': imagenet_data.DataLoader,
-              'mnist': mnist_data.DataLoader}[args.data_set]
-train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu,
+              'mnist': mnist_data.DataLoader,
+              'bigimagenet': imagenet.DataLoader}[args.data_set]
+data_dir = args.data_dir
+if args.data_set == 'bigimagenet':
+    data_dir = imagenet.DEFAULT_IMAGENET_PATH
+print('loading data...', flush=True)
+train_data = DataLoader(data_dir, 'train', args.batch_size * args.nr_gpu,
                         rng=rng, shuffle=True, return_labels=args.class_conditional)
-test_data = DataLoader(args.data_dir, 'test', args.batch_size *
+print('loaded train data', flush=True)
+test_data = DataLoader(data_dir, 'test', args.batch_size *
                        args.nr_gpu, shuffle=False, return_labels=args.class_conditional)
+print('loaded test data', flush=True)
 obs_shape = train_data.get_observation_size()  # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
@@ -210,7 +218,7 @@ def make_feed_dict(data, init=False):
 # //////////// perform training //////////////
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
-print('starting training')
+print('starting training', flush=True)
 test_bpd = []
 lr = args.learning_rate
 with tf.Session() as sess:
@@ -224,16 +232,19 @@ with tf.Session() as sess:
                 train_data.next(args.init_batch_size), init=True)
             train_data.reset()  # rewind the iterator back to 0 to do one full epoch
             sess.run(initializer, feed_dict)
-            print('initializing the model...')
+            print('initializing the model...', flush=True)
             if args.load_params:
                 ckpt_file = args.save_dir + '/params_' + args.data_set + '.ckpt'
-                print('restoring parameters from', ckpt_file)
+                print('restoring parameters from', ckpt_file, flush=True)
                 saver.restore(sess, ckpt_file)
 
             saver.save(sess, args.save_dir + '/params_' + args.data_set + '_initial.ckpt')
-            print('done saving initial parameters')
+            print('done saving initial parameters', flush=True)
         # train for one epoch
+        print('starting epoch %d' % epoch, flush=True)
         train_losses = []
+        count = 0
+        st = time.time()
         for d in train_data:
             feed_dict = make_feed_dict(d)
             # forward/backward/update model on each gpu
@@ -241,6 +252,9 @@ with tf.Session() as sess:
             feed_dict.update({tf_lr: lr})
             l, _ = sess.run([bits_per_dim, optimizer], feed_dict)
             train_losses.append(l)
+            count += len(d)
+            print('epoch %d step (%d data points, %d so far), %.3fs' % (epoch, len(d), count, time.time() - st), flush=True)
+            st = time.time()
         train_loss_gen = np.mean(train_losses)
 
         # compute likelihood over test data
@@ -254,19 +268,19 @@ with tf.Session() as sess:
 
         # log progress to console
         print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (
-            epoch, time.time() - begin, train_loss_gen, test_loss_gen))
+            epoch, time.time() - begin, train_loss_gen, test_loss_gen), flush=True)
         sys.stdout.flush()
 
         if epoch % args.save_interval == 0:
 
             # generate samples from the model
-            sample_x = sample_from_model(sess)
-            img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(
-                args.batch_size * args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
-            img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
-            plotting.plt.savefig(os.path.join(
-                args.save_dir, '%s_sample%d_%.8fbpd.png' % (args.data_set, epoch, test_loss_gen)))
-            plotting.plt.close('all')
+            # sample_x = sample_from_model(sess)
+            # img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(
+                # args.batch_size * args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
+            # img = plotting.plot_img(img_tile, title=args.data_set + ' samples')
+            # plotting.plt.savefig(os.path.join(
+                # args.save_dir, '%s_sample%d_%.8fbpd.png' % (args.data_set, epoch, test_loss_gen)))
+            # plotting.plt.close('all')
 
             # save params
             saver.save(sess, args.save_dir + '/params_' +
