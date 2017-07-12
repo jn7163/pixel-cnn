@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import PIL
+import multiprocessing
+import multiprocessing.dummy as dummy
 
 DEFAULT_IMAGENET_PATH = '/media/NAS_RO/ILSVRC2012/Extracted/'
 SIZE = 256
@@ -8,7 +10,7 @@ SIZE = 256
 class DataLoader(object):
     """ an object that generates batches of CIFAR-10 data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, buffer_size=None, dtype=np.uint8):
         """
         - data_dir is the location of extracted ILSVRC2012 train data
               on our system: DEFAULT_IMAGENET_PATH
@@ -18,6 +20,9 @@ class DataLoader(object):
         """
 
         self.data_dir = data_dir
+        self.dtype = dtype
+        if dtype not in [np.uint8, np.float32]:
+            raise ValueError('invalid dtype')
         if subset == 'train':
             data_path = os.path.join(data_dir, 'train')
             self.image_paths = [
@@ -35,23 +40,43 @@ class DataLoader(object):
             assert len(self.image_paths) == 100000
         else:
             raise ValueError('invalid subset: %s' % subset)
-        
+
         self.image_paths = np.array(self.image_paths)
         fixed_rng = np.random.RandomState(1)
         fixed_rng.shuffle(self.image_paths)
         if subset == 'train':
-            self.image_paths = self.image_paths[:100000]
+            # self.image_paths = self.image_paths[:1000000]
+            pass
         else:
-            self.image_paths = self.image_paths[:5000]
+            self.image_paths = self.image_paths[:10000] # don't want to waste time on this
 
         self.batch_size = batch_size
         self.shuffle = shuffle
         if return_labels:
             raise ValueError('return_labels not supported')
-        
 
-        self.p = 0 # pointer to where we are in iteration
+
         self.rng = np.random.RandomState(1) if rng is None else rng
+
+        if buffer_size is None:
+            buffer_size = 5 * batch_size
+        if buffer_size < batch_size:
+            raise ValueError('bad buffer size')
+        self._buffer_size = buffer_size
+
+        self._launch_workers()
+
+    def _launch_workers(self):
+        workers = []
+        input_queue = multiprocessing.Queue(self._buffer_size)
+        self._output_queue = multiprocessing.Queue(self._buffer_size)
+        p = dummy.Process(target=pusher, args=(self.image_paths, input_queue, self._output_queue, self.shuffle))
+        p.start()
+        workers.append(p)
+        for i in range(multiprocessing.cpu_count()):
+            p = dummy.Process(target=worker, args=(input_queue, self._output_queue))
+            p.start()
+            workers.append(p)
 
     def get_observation_size(self):
         return (SIZE, SIZE, 3)
@@ -59,35 +84,53 @@ class DataLoader(object):
     def get_num_labels(self):
         raise NotImplementedError
 
-    def reset(self):
-        self.p = 0
-
     def __iter__(self):
         return self
+
+    def reset(self):
+        pass # ignore
 
     def __next__(self, n=None):
         """ n is the number of examples to fetch """
         if n is None: n = self.batch_size
-            
-        # on first iteration lazily permute all data
-        if self.p == 0 and self.shuffle:
-            self.rng.shuffle(self.image_paths)
-
-        # on last iteration reset the counter and raise StopIteration
-        if self.p + n > self.image_paths.shape[0]:
-            self.reset() # reset for next time we get called
-            raise StopIteration
 
         # on intermediate iterations fetch the next batch
-        x = np.zeros((n, 256, 256, 3), dtype=np.uint8)
-        for i, v in enumerate(self.image_paths[self.p : self.p + n]):
-            x[i,:,:,:] = crop(v, randomize=self.shuffle)
-        self.p += n
-        
+        if self.dtype == np.uint8:
+            x = np.zeros((n, 256, 256, 3), dtype=np.uint8)
+        else:
+            x = np.zeros((n, 256, 256, 3), dtype=np.float32)
+        for i in range(n):
+            img = self._output_queue.get()
+            if img is None:
+                raise StopIteration
+            if self.dtype == np.uint8:
+                x[i,:,:,:] = img
+            else:
+                x[i,:,:,:] = img / 255.0
+
         return x
 
     next = __next__  # Python 2 compatibility (https://stackoverflow.com/questions/29578469/how-to-make-an-object-both-a-python2-and-python3-iterator)
-    
+
+def pusher(image_paths, input_queue, output_queue, shuffle):
+    rng = np.random.RandomState(1)
+    while True:
+        if shuffle:
+            rng.shuffle(image_paths)
+        for path in image_paths:
+            input_queue.put((path, shuffle))
+        input_queue.put(None) # sloppy epochs
+
+def worker(input_queue, output_queue):
+    while True:
+        inp = input_queue.get()
+        if inp is None:
+            output_queue.put(None)
+            continue
+        path, randomize = inp
+        cropped = crop(path, randomize)
+        output_queue.put(cropped)
+
 # expects a path to a BW or color image
 def crop(image_path, randomize):
     img = PIL.Image.open(image_path)
